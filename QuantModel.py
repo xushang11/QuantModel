@@ -916,7 +916,7 @@ def main(argv):
     
     try:
 
-        #procSrcData()
+        procSrcData()
         
         #importDataAll_MAs()
         
@@ -926,13 +926,16 @@ def main(argv):
         
         #profit_MAs_SSI('SZ399006', 60)
         #profit_MAs_SSI('SZ159915', 60)
+        #profit_MAs_SSI('SH000001', 60)
+        #profit_MAs_SSI('SZ300423', 60)
         
-        #profit_MAs_MSI('all', 60)
+        profit_MAs_MSI('all', 60)
 
-        #profit_MAs_SSI_byTI('SZ300393', 60, '2014-11-18', '2015-11-13')
-        #profit_MAs_SSI_byTI('SZ300448', 60, '2015-06-01', '2015-11-13')
+        #profit_MAs_SSI_byTI('SZ300393', 60, '2014-11-19', '2015-11-19')
+        #profit_MAs_SSI_byTI('SZ300448', 60, '2015-05-29', '2015-11-19')
         #profit_MAs_SSI_byTI('SZ399006', 60, '2014-01-02', '2015-11-13')
-        profit_MAs_SSI_byTI('SZ159915', 60, '2014-01-02', '2015-11-13')
+        #profit_MAs_SSI_byTI('SZ159915', 60, '2014-01-02', '2015-11-13')
+        #profit_MAs_SSI_byTI('SZ300423', 60, '2015-03-04', '2015-11-19')
 
     except KeyboardInterrupt:
 	    print ('User interrupt to stop command!')
