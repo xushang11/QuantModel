@@ -14,6 +14,21 @@ import MySQLdb
 #define variables for directory/file names
 this=os.path.basename(sys.argv[0])
 
+# Define debug and log level
+LOG_CRITICAL = 	1
+LOG_ERROR = 	2
+LOG_WARNING = 	3
+LOG_INFO =  	4
+LOG_DEBUG = 	5
+
+# Served as global variable. 
+# stdout_log is for "Logging to standard output". It is default to False. 
+# loglevel is initialized to LOG_ERROR so by default only the logs that has 
+# the same or lower level e.g. CRITICAL will be logged. 
+stdout_log    = 0 
+loglevel = LOG_ERROR
+logfile = os.getcwd()+'/'+this+'.log'
+
 #home_dir           -- home dir
 #data_export_dir    -- data retrieved from tdx exportation
 #data_ipsrc_dir     -- source data copied from export dir (the same, so far)
@@ -24,12 +39,48 @@ data_export_dir = home_dir + "export"
 data_ipsrc_dir = home_dir + "ipsrcdata"
 data_opsrc_dir = home_dir + "opsrcdata"
 data_procd_dir = home_dir + "procddata"
-code_file = 'SH000001.data'
+
+#various dicts
+helpDict = {}
+
+helpDict['action']      =       ('All the actions by QuantModel: init, cleanup, trade, report ')
+helpDict['signal']      =       ('The signal for trading: MA, MAcrossing, DoubleMA, Channel ')
+helpDict['code']        =       ('The code name of trading, such as SH000001, SZ399006')
+helpDict['startdate']   =       ('The start date of trading or reporting')
+helpDict['enddate']     =       ('The end date of trading or reporting')
 
 ###############################################################################
 # FUNCs:
 ###############################################################################
-            
+###############################################################################
+# Log the specified message string
+###############################################################################
+class Logger:
+    pass
+
+def log(msg, filename = __file__, debug_level = LOG_INFO):
+    
+    try:
+	srcfile = os.path.basename(filename)
+	i = srcfile.find('.')
+	if i > 0:
+	    srcfile = srcfile[0:i]
+	line = (str(datetime.datetime.utcnow())[0:22] +
+		' ' + srcfile + ': ' + msg + '\n')
+
+	f = open(logfile,"a")
+	f.write(line)
+	f.close()
+
+	#currently print stdout for unit test
+        stdout_log = True
+	if stdout_log or ( debug_level <= loglevel):
+	    print(msg+'\n')
+
+    except Exception, exc:
+	print exc # str(exc) is printed
+	raise Exception, 'log() failed'
+          
 ###############################################################################
 def tryMySQL():
     #This is just a test for MySQL db operations
@@ -367,20 +418,11 @@ def transact_MAs_fromDF(codename, malength):
         #summary list
         summaryList = []
 
-##        #operation action: buyin or sellout or onhold (no operation)
-##        buyin = False
-##        sellout = False
-##        onhold = True
-##        #position status: longposition or shortposition
-##        longpostn = False
-##        shortpostn = True
         #InAll
         #status: 0 (shortpostn); 1 (longpostn)
         #action: 0 (onhold), 1 (buying); 2 (sellout)
         status = 0
         action = 0
-
-        #print ('------------------------------------')
         
         indx = 0
         for line in open(workdata, 'r'):
@@ -484,6 +526,15 @@ def transact_MAs_fromDF(codename, malength):
         #SUMMARY
         #buyin date; buyin point; sellout date; sellout point; profit; profit percent
         #calc total profit and total profit percent at the same time; both are float number
+        #For total profit point, it could not reflect the real profit due to stock price is fluctuating
+        #For example, buyin at 5, sellout at 10, we got 10-5=5 point;
+        #another buyin at 10, sellout at 15, we got 15-10=5 point. The point is same but net profit is different (100% vs 50%)
+        #If we use percent and sum them up, we have assumption that everytime we buyin we use same initial capital/money.
+        #In this case we haven't count in the profit of profit...
+        #If we count all of profit on profit in, here profit percent is:
+        #A*(1+pp1)  A(1+pp1)(1+pp2) A(1+pp1)(1+pp2)(1+pp3) ...; here A is initial capital, ppx is the profit percent of each transcation.
+        #Here we use a compromised solution, we use 50% of profit and add it into initial capital everytime
+        #This means we will have (1 + profit_percent/2)*IC everytime...
         total_profit_point = 0.0
         total_profit_percent = 0.0
         outfile = data_procd_dir + "\\" + codename + ".out"
@@ -504,12 +555,6 @@ def transact_MAs_fromDF(codename, malength):
             total_profit_percent = total_profit_percent + profit_percent + total_profit_percent*profit_percent
             fd.write(buyin_date + ';    \t' + str(buyin_point) + ';     \t' + str(buyin_mavalue) + ';   \t' + sellout_date + ';     \t' + str(sellout_point) + ';   \t' + str(sellout_mavalue) + ';     \t' + str(profit_point) + ';    \t' + str(profit_percent) + '\n')
         fd.close()
-        
-        #profit SUMMARY
-##        for bse in buyin_sellout_earned_list:
-##            total_profit = total_profit + bse[2][1]
-##        print('Total profit by MA' + str(malength) + ' is ' + str(total_profit))
-        #print('Total profit by MA' + str(malength) + ' is ' + str(total_profit_point) + '\t' + str(total_profit_percent))
 
         #return summaryList
         total_profit = [total_profit_point, total_profit_percent]
@@ -649,12 +694,6 @@ def transact_MAs_fromDF_byTimeInterval(codename, malength, startdate, enddate):
 
             indx = indx + 1
 
-##        #if there is no enough data to calc MAs, just return 
-##        date_interval = eindx - sindx
-##        if sindx < malength:
-##            print('Start date not able to calc MA.')
-##            return False
-
         #Second, process data in this interval
         #At this point, we got start indx and end indx
         indx = 0
@@ -732,17 +771,6 @@ def transact_MAs_fromDF_byTimeInterval(codename, malength, startdate, enddate):
             buyin_sellout_earned_list.append([buyin_point, sellout_point, earned_points])                     
 
         #SUMMARY
-        #buyin date; buyin point; sellout date; sellout point; profit; profit percent
-        #calc total profit and total profit percent at the same time; both are float number
-        #For total profit point, it could not reflect the real profit due to stock price is fluctuating
-        #For example, buyin at 5, sellout at 10, we got 10-5=5 point;
-        #another buyin at 10, sellout at 15, we got 15-10=5 point. The point is same but net profit is different (100% vs 50%)
-        #If we use percent and sum them up, we have assumption that everytime we buyin we use same initial capital/money.
-        #In this case we haven't count in the profit of profit...
-        #If we count all of profit on profit in, here profit percent is:
-        #A*(1+pp1)  A(1+pp1)(1+pp2) A(1+pp1)(1+pp2)(1+pp3) ...; here A is initial capital, ppx is the profit percent of each transcation.
-        #Here we use a compromised solution, we use 50% of profit and add it into initial capital everytime
-        #This means we will have (1 + profit_percent/2)*IC everytime...
         total_profit_point = 0.0
         total_profit_percent = 0.0
         outfile = data_procd_dir + "\\" + codename + ".out"
@@ -888,7 +916,7 @@ def profit_MAs_MSI(codename, malength):
 #This func is to do cleanup work before data processing
 #It will:
 #   1) remove all files in 
-def cleanup():
+def clean_up():
     
     try:
         #cleanup file list
@@ -900,42 +928,260 @@ def cleanup():
     
     except Exception, exc:
         print(traceback.format_exc())
-	raise Exception, 'cleanup() failed'
+	raise Exception, 'clean_up() failed'
 
 ###############################################################################
-####GLOBALS
-##home_dir = "D:\\Personal_Misc\\0000_Investment\\QuantitativeModel\\"
-##data_export_dir = home_dir + "export"
-##data_ipsrc_dir = home_dir + "ipsrcdata"
-##data_opsrc_dir = home_dir + "opsrcdata"
-##data_procd_dir = home_dir + "procddata"
+#This func is to do init work before data processing
+#It will:
+def init():
+    
+    try:
+        #do init work, call cleanup for now
+        clean_up()
+        procSrcData()
+    
+    except Exception, exc:
+        print(traceback.format_exc())
+	raise Exception, 'init() failed'
+
+###############################################################################
+# summary_report 
+def summary_report():
+    
+    try:
+        #stub here for now
+        pass
+
+    except Exception, exc: 
+        log( traceback.format_exc())
+        raise Exception, 'summary_report() failed ' + str(exc)
+
+###############################################################################
+# trade_by_MA
+def trade_by_MA():
+    
+    try:
+        #trade by pure MA
+        if code == 'all':
+            if startdate == 'all' and enddate == 'all':
+                profit_MAs_MSI(code, 60)
+            else:
+                print ('We do not support code=all if time interval is not all.')
+                sys.exit(1)
+
+        else:
+            if startdate == 'all' and enddate == 'all':
+                profit_MAs_SSI(code, 60)
+            else:
+                profit_MAs_SSI_byTI(code, 60, startdate, enddate)
+
+    except Exception, exc: 
+        log( traceback.format_exc())
+        raise Exception, 'trade_by_MA() failed ' + str(exc)
+
+###############################################################################
+# trade_by_MAcrossing
+def trade_by_MAcrossing():
+    
+    try:
+        #stub for now
+        pass
+    
+    except Exception, exc: 
+        log( traceback.format_exc())
+        raise Exception, 'trade_by_MAcrossing() failed ' + str(exc)
+
+###############################################################################
+# trade_by_DoubleMA
+def trade_by_DoubleMA():
+    
+    try:
+        #stub for now
+        pass
+    
+    except Exception, exc: 
+        log( traceback.format_exc())
+        raise Exception, 'trade_by_DoubleMA() failed ' + str(exc)
+
+###############################################################################
+# trade_by_Channel
+def trade_by_Channel():
+    
+    try:
+        #stub for now
+        pass
+    
+    except Exception, exc: 
+        log( traceback.format_exc())
+        raise Exception, 'trade_by_Channel() failed ' + str(exc)
+###############################################################################
+# run work
+def run_work():
+    
+    try:
+        #All work and dispatchings are done here
+        if action   == 'init':
+            init()
+
+        elif action == 'cleanup':
+            clean_up()
+            
+        elif action == 'report':
+            summary_report()
+
+        elif action == 'trade':
+            if signal   == 'MA':
+                trade_by_MA()
+            elif signal == 'MAcrossing':
+                trade_by_MAcrossing()
+            elif signal == 'DoubleMA':
+                trade_by_DoubleMA()
+            elif signal == 'Channel':
+                trade_by_Channel()
+            else:
+                print ('Got here means there is something wrong for action:trade parsing...')
+
+        else:
+            print ('Got here means there is something wrong for action paring...')
+
+    except Exception, exc: 
+        log( traceback.format_exc())
+        raise Exception, 'run_work() failed ' + str(exc)
+
+###############################################################################
+# set_env 
+def set_env():
+    
+    try:
+        #Will use this func to do setenv works
+        #just do cleanup work and proc src data work for now
+        clean_up()
+        #procSrcData()
+
+    except Exception, exc: 
+        log( traceback.format_exc())
+        raise Exception, 'set_env() failed ' + str(exc)
+
+###############################################################################
+# set_options function
+# arg: argv
+#pending work:
+#1) option for mavalue if trade by MA
+#2) check for date format
+def set_options(argv):
+    
+    try:
+        global parser
+        global action
+        global signal
+        global code
+        global startdate
+        global enddate
+
+        action_list = ['init', 'cleanup', 'trade', 'report']
+        action_help = '|'.join(action_list)
+        signal_list = ['MA', 'MAcrossing', 'DoubleMA', 'Channel' ]
+        signal_help = '|'.join(signal_list)
+
+        usage = 'usage: %prog options'
+        cmdname = os.path.basename(sys.argv[0])
+        epilog = '\nUse ' + cmdname + ' --action ACTION --help for specific action info\n\n'
+        optparse.OptionParser.format_epilog = lambda self, formatter: self.epilog
+        parser = optparse.OptionParser(usage=usage, epilog=epilog)
+
+        parser.add_option('-a','--action',
+                          dest='action',
+                          choices=action_list,
+                          help=action_help)    
+
+        parser.add_option('-s','--signal',
+                          dest='signal',
+                          choices=signal_list,
+                          help=signal_help)
+        
+        parser.add_option('-c','--code',
+                          dest='code',
+                          default='all',
+                          help=helpDict['code'])
+
+
+        parser.add_option('-d','--startdate',
+                          dest='startdate',
+                          default='all',
+                          help=helpDict['startdate'])   
+
+        parser.add_option('-e','--enddate',
+                          dest='enddate',
+                          default='all',
+                          help=helpDict['enddate'])
+        
+        #start to parser options
+        num_args = len(argv)
+
+        #If there are not arguments set the basic optins then print help and exit
+        if num_args == 0:
+            parser.print_help()
+            sys.exit(1)
+
+        #If --help/-h is the option, print basic help
+        if (num_args == 1) and ('--help' in argv or '-h' in argv):
+            parser.print_help()
+            sys.exit(1)
+
+        #parse_args
+        options, arguments = parser.parse_args(argv)
+
+        action          =       options.action
+        signal          =       options.signal
+        code            =       options.code
+        startdate       =       options.startdate
+        enddate         =       options.enddate
+
+        #options cross check
+        if action == 'trade':
+            if not signal:
+                print ('Missing singal option')
+                print (helpDict['signal'])
+                sys.exit(1)
+
+        if startdate == 'all':
+            #means we need to get all the data from day one for this code
+            #In this situation the enddate needs to be 'all' too
+            if enddate != 'all':
+                print ('Missing startdate and enddate need to be set to ALL at the same time')
+                sys.exit(1)
+
+        #Here need to check other format of startdate and enddate
+        #all, xxxx-xx-xx
+                
+              
+    except Exception, exc: 
+        log( traceback.format_exc())
+        raise Exception, 'set_options() failed ' + str(exc)
+    
 ###############################################################################
 # MAIN:
 ###############################################################################
+######Overall thoughts######
+#DoubleMA:
+#Two MAs, one short-term, one longterm
+#1)closing higher than short-term MA, buyin
+#2)closing lower than short-term MA, sellout if closing also lower than long-term MA
 def main(argv):
     
     try:
+        #parser options
+        set_options(argv)
 
-        procSrcData()
+        set_env()
+
+        run_work()
         
-        #importDataAll_MAs()
-        
-        #profit_MAs('SZ399006', 60)
-        
-        cleanup()
-        
+        #procSrcData()
+        #clean_up()
         #profit_MAs_SSI('SZ399006', 60)
-        #profit_MAs_SSI('SZ159915', 60)
-        #profit_MAs_SSI('SH000001', 60)
-        #profit_MAs_SSI('SZ300423', 60)
-        
-        profit_MAs_MSI('all', 60)
-
-        #profit_MAs_SSI_byTI('SZ300393', 60, '2014-11-19', '2015-11-19')
-        #profit_MAs_SSI_byTI('SZ300448', 60, '2015-05-29', '2015-11-19')
-        #profit_MAs_SSI_byTI('SZ399006', 60, '2014-01-02', '2015-11-13')
-        #profit_MAs_SSI_byTI('SZ159915', 60, '2014-01-02', '2015-11-13')
-        #profit_MAs_SSI_byTI('SZ300423', 60, '2015-03-04', '2015-11-19')
+        #profit_MAs_MSI('all', 60)
+        #profit_MAs_SSI_byTI('SZ300393', 60, '2014-09-22', '2015-11-19')
 
     except KeyboardInterrupt:
 	    print ('User interrupt to stop command!')
